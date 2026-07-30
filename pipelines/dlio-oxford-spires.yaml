@@ -48,14 +48,14 @@ compute_time_offset: true
 # available for this rig, so estimate gyro/accel bias and the initial
 # gravity-aligned orientation from a startup static window, matching
 # upstream's own default strategy.
-imu_calibrate: true
-imu_approximate_gravity: true
+imu_calibrate: ${DLIO_IMU_CALIBRATE|true}
+imu_approximate_gravity: ${DLIO_IMU_APPROXIMATE_GRAVITY|true}
 imu_calibrate_gyro: true
 imu_calibrate_accel: true
 # observatory-quarter-01 starts with the rig held still for several seconds
 # before the carrier starts moving (confirmed via the gravity dump, see the
 # plan's D9/validation section); upstream's 3 s default is kept.
-imu_calib_time_sec: 3.0
+imu_calib_time_sec: ${DLIO_IMU_CALIB_TIME_SEC|3.0}
 imu_buffer_size: 5000
 
 keyframe_thresh_dist: ${DLIO_KEYFRAME_THRESH_D|1.0}
@@ -77,8 +77,8 @@ gicp_init_lambda_factor: 1e-9
 # platform already.
 geo_Kp: 4.5
 geo_Kv: 11.25
-geo_Kq: 4.0
-geo_Kab: 2.25
+geo_Kq: ${DLIO_GEO_KQ|4.0}
+geo_Kab: ${DLIO_GEO_KAB|2.25}
 geo_Kgb: 1.0
 geo_abias_max: 5.0
 geo_gbias_max: 0.5
