@@ -31,12 +31,14 @@
 #include <mrpt/system/filesystem.h>
 #include <mrpt/system/os.h>
 #include <mrpt/system/progress.h>
+#include <mrpt/system/string_utils.h>
 
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <vector>
 #include <thread>
 
 #if defined(HAVE_MOLA_INPUT_MULRAN)
@@ -168,6 +170,25 @@ std::shared_ptr<mola::OfflineDatasetSource> dataset_from_rosbag2(
   auto o = std::make_shared<mola::Rosbag2Dataset>();
   o->setMinLoggingLevel(logLevel);
 
+  // A comma-separated value becomes a YAML sequence, so that a sequence split
+  // across several bag directories (e.g. Oxford Spires keble-college-04, whose
+  // two parts share a base timestamp and are two halves of one continuous
+  // recording) can be replayed as the single sequence it is. Rosbag2Dataset
+  // accepts either a scalar or a sequence for 'rosbag_filename'.
+  std::string bagsYaml;
+  {
+    std::vector<std::string> parts;
+    mrpt::system::tokenize(rosbag2file, ",", parts);
+    ASSERT_(!parts.empty());
+    if (parts.size() == 1) {
+      bagsYaml = "'" + mrpt::system::trim(parts[0]) + "'";
+    } else {
+      for (const auto & p : parts) {
+        bagsYaml += "\n        - '" + mrpt::system::trim(p) + "'";
+      }
+    }
+  }
+
   // Fixed sensor poses (env vars), for bags with no /tf or /tf_static (e.g.
   // Oxford Spires): same env var names as mola-lidar-odometry-cli's own
   // dataset_from_rosbag2(), so the same override snippet works for all
@@ -175,7 +196,7 @@ std::shared_ptr<mola::OfflineDatasetSource> dataset_from_rosbag2(
   const auto cfg = mola::Yaml::FromText(mola::parse_yaml(mrpt::format(
     R""""(
     params:
-      rosbag_filename: '%s'
+      rosbag_filename: %s
       base_link_frame_id: "${MOLA_TF_BASE_LINK|base_link}"
       sensors:
         - topic: '%s'
@@ -189,7 +210,7 @@ std::shared_ptr<mola::OfflineDatasetSource> dataset_from_rosbag2(
           fixed_sensor_pose: "${IMU_POSE_X|0} ${IMU_POSE_Y|0} ${IMU_POSE_Z|0} ${IMU_POSE_YAW|0} ${IMU_POSE_PITCH|0} ${IMU_POSE_ROLL|0}"
           use_fixed_sensor_pose: ${MOLA_USE_FIXED_IMU_POSE|false}
 )"""",
-    rosbag2file.c_str(), cli.arg_lidarTopic.getValue().c_str(),
+    bagsYaml.c_str(), cli.arg_lidarTopic.getValue().c_str(),
     cli.arg_imuTopic.getValue().c_str())));
 
   o->initialize(cfg);
