@@ -14,23 +14,30 @@ if("$ENV{ROS_VERSION}" STREQUAL "2")
     set(DETECTED_ROS2 TRUE)
 endif()
 
-project(mola_dlio_wrapper LANGUAGES CXX)
+project(mola_dlio_wrapper LANGUAGES CXX C)
 
 # MOLA CMake scripts: "mola_xxx()"
 find_package(mola_common REQUIRED)
 
 # find dependencies:
 find_package(Eigen3 REQUIRED)
+# PCLConfig.cmake pulls in an optional find_package(VTK) while resolving the
+# "registration"/"features" component chain, and on some distro VTK cmake
+# configs (e.g. Ubuntu 22.04's VTK 9.1) that exposes a "VTK::mpi" target
+# whose link interface requires MPI::MPI_C, which VTK's own config does not
+# find on its own. Pre-finding it here (if available) satisfies that link
+# interface; QUIET/non-REQUIRED so this stays a no-op on distros where the
+# bug is absent or MPI is not installed. If PCL's find_package() below still
+# fails with a "VTK::mpi" / "MPI::MPI_C not found" error, install the
+# system's MPI C development package (e.g. libopenmpi-dev on Ubuntu).
+find_package(MPI QUIET COMPONENTS C)
 # Deliberately NOT requesting the "surface" component (needed for
-# pcl::ConvexHull/ConcaveHull, used by dlio_core's submap construction):
-# PCLConfig.cmake's per-component dependency resolution pulls in a
-# find_package(VTK) for "surface" on this machine, and the installed VTK
-# 9.5 cmake config has a broken "VTK::mpi" target reference that aborts the
-# whole CMake configure. The surface/convex-hull headers and library are
-# installed regardless of the COMPONENTS list (they are not gated at the
-# apt-package level), so third_party/dlio_core/CMakeLists.txt links
-# `pcl_surface` (and its `qhull_r` dependency) directly by name instead of
-# going through ${PCL_LIBRARIES}.
+# pcl::ConvexHull/ConcaveHull, used by dlio_core's submap construction): it
+# is not needed by any requested component here, and the surface/convex-hull
+# headers and library are installed regardless of the COMPONENTS list (they
+# are not gated at the apt-package level), so third_party/dlio_core/
+# CMakeLists.txt links `pcl_surface` (and its `qhull_r` dependency) directly
+# by name instead of going through ${PCL_LIBRARIES}.
 find_package(PCL 1.8 REQUIRED COMPONENTS common filters registration kdtree)
 find_package(mrpt-maps REQUIRED)
 find_package(mrpt-obs REQUIRED)
