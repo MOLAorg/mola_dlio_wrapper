@@ -11,10 +11,18 @@
 # NO /tf or /tf_static in these bags, so use_fixed_sensor_pose is mandatory
 # for every sensor.
 #
-# Extrinsics: same values as mola_lidar_odometry's and
-# mola_fast_lio2_wrapper's Oxford Spires launch files (Hesai LiDAR as
-# base_link, identity pose; IMU pose derived from the dataset's
-# cam-lidar-imu calibration).
+# Extrinsics: same values as mola_lidar_odometry's
+# lidar_odometry_from_oxford_spires.yaml, i.e. every pose is
+# T_base_sensor = T_base_lidar . T_lidar_sensor, with T_base_lidar taken from
+# the dataset's sensor.yaml ("0 0 0.124 180 0 0").
+#
+# The base frame, not the raw LiDAR frame, because that is the frame this
+# dataset's ground truth uses. Until 2026-08-10 the LiDAR sat at identity
+# here, which put every estimated pose 180 deg of body yaw away from the
+# reference. An aligned APE barely notices (a body yaw moves position only by
+# the 0.124 m lever arm) but it negates the horizontal part of every relative
+# motion, so relative drift and tilt metrics measured the frame convention
+# instead of the odometry.
 #
 # No separate state_estimation module here: DLIO is a self-contained
 # LiDAR-inertial estimator, it publishes its own pose/map updates directly.
@@ -77,7 +85,7 @@ modules:
         - ${OXFORD_SPIRES_BAG_4|}
         - ${OXFORD_SPIRES_BAG_5|}
 
-      base_link_frame_id: "${MOLA_TF_BASE_LINK|hesai_lidar}"
+      base_link_frame_id: "${MOLA_TF_BASE_LINK|base_link}"
       time_warp_scale: ${MOLA_TIME_WARP|1.0}
       start_paused: ${MOLA_DATASET_START_PAUSED|false}
       # 0 (default): replay the whole sequence. Set e.g. to quickly validate
@@ -88,17 +96,16 @@ modules:
         - topic: "${MOLA_LIDAR_TOPIC|/hesai/pandar}"
           type: CObservationPointCloud
           sensorLabel: "${MOLA_LIDAR_NAME|lidar}"
-          # Hesai LiDAR is used as the reference (base_link) frame here:
-          fixed_sensor_pose: "0 0 0 0 0 0"
+          # T_base_lidar, from the dataset's sensor.yaml:
+          fixed_sensor_pose: "0 0 0.124 180 0 0"
           use_fixed_sensor_pose: true
 
         - topic: "${MOLA_IMU_TOPIC|/alphasense_driver_ros/imu}"
           type: CObservationIMU
           sensorLabel: imu
-          # T_lidar_imu, same value as in
-          # lidar_odometry_from_oxford_spires.yaml (derived from cam0's
-          # C_q_CI/C_r_CI and C_q_CL/C_r_CL):
-          fixed_sensor_pose: "0.018771 -0.008218 -0.070474 -90.6263 -0.1665 -0.1287"
+          # T_base_imu, derived from cam0's C_q_CI/C_r_CI (cam0-to-imu) and
+          # C_q_CL/C_r_CL (cam0-to-lidar), then composed through T_base_lidar:
+          fixed_sensor_pose: "-0.018771 0.008218 0.053526 89.3737 -0.1665 -0.1287"
           use_fixed_sensor_pose: true
 
   # =====================
