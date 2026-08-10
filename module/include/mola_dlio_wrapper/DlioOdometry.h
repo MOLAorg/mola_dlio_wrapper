@@ -73,6 +73,7 @@ public:
 
   // ExecutableBase
   void spinOnce() override;
+  void onQuit() override;
 
   // RawDataConsumer
   void onNewObservation(const mrpt::obs::CObservation::ConstPtr & o) override;
@@ -94,6 +95,13 @@ private:
   void processLidarScan(mrpt::obs::CObservation::ConstPtr o);
   void drainAndPublish();
   void publishOutput(const dlio_core::OdometryOutput & out);
+
+  /// Drains `worker_lidar_` and, if requested, writes the accumulated
+  /// trajectory to disk. Called from both `onQuit()` (while every other
+  /// module is still alive -- see `mola::LidarOdometry::shutdownCleanup()`
+  /// for why that matters) and the destructor; idempotent via
+  /// `shutdown_cleanup_done_` so the second call is a no-op.
+  void shutdownCleanup();
 
   // --- GUI / 3D scene visualization (mola_viz / mola_viz_imgui) ---
   void updateVisualization(
@@ -129,6 +137,17 @@ private:
 
   mutable std::mutex trajectory_mtx_;
   mrpt::poses::CPose3DInterpolator trajectory_;
+
+  std::atomic_bool shutdown_cleanup_done_{false};
+
+  /// If true, `shutdownCleanup()` dumps `trajectory_` to
+  /// `trajectory_output_file_` in TUM format -- mirrors
+  /// `mola::LidarOdometry`'s `estimated_trajectory` pipeline block, needed
+  /// so `mola-cli` (online mode) can export a trajectory the same way the
+  /// offline `mola-dlio-cli` app already does via `estimatedTrajectory()` +
+  /// `--output-tum-path`.
+  bool save_trajectory_to_file_ = false;
+  std::string trajectory_output_file_;
 
   struct VisualizationParams
   {

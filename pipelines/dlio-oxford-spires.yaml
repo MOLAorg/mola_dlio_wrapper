@@ -94,3 +94,11 @@ camera_follows_vehicle: true
 current_pose_corner_size: 1.0
 submap_point_size: 2.0
 map_update_decimation: 10
+
+# --- Estimated trajectory output ---
+# Dumped to disk on shutdown when enabled -- mirrors mola_lidar_odometry's
+# `estimated_trajectory` pipeline block (same env var names), needed so
+# `mola-cli` (online mode) can export a trajectory the same way the offline
+# `mola-dlio-cli` app already does via its own `--output-tum-path` flag.
+save_trajectory_to_file: ${MOLA_SAVE_TRAJECTORY|false}
+trajectory_output_file: ${MOLA_TUM_TRAJECTORY_OUTPUT|'estimated_trajectory.tum'}

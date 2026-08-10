@@ -78,7 +78,27 @@ void poseToExtrinsic(const mrpt::poses::CPose3D & pose, dlio_core::Config::Extri
 }  // namespace
 
 DlioOdometry::DlioOdometry() = default;
-DlioOdometry::~DlioOdometry() { worker_lidar_.clear(); }
+DlioOdometry::~DlioOdometry() { shutdownCleanup(); }
+
+void DlioOdometry::onQuit() { shutdownCleanup(); }
+
+void DlioOdometry::shutdownCleanup()
+{
+  if (shutdown_cleanup_done_.exchange(true)) {
+    return;
+  }
+
+  worker_lidar_.clear();
+
+  if (save_trajectory_to_file_ && !trajectory_output_file_.empty()) {
+    auto lck = mrpt::lockHelper(trajectory_mtx_);
+    MRPT_LOG_INFO_STREAM(
+      "Saving estimated trajectory with " << trajectory_.size() << " keyframes to file '"
+                                           << trajectory_output_file_ << "' in TUM format...");
+    trajectory_.saveToTextFile_TUM(trajectory_output_file_);
+    MRPT_LOG_INFO("Final trajectory saved.");
+  }
+}
 
 void DlioOdometry::initialize_frontend(const Yaml & cfg)
 {
@@ -160,6 +180,9 @@ void DlioOdometry::initialize_frontend(const Yaml & cfg)
   YAML_LOAD_OPT3(visualization_params_, current_pose_corner_size, float);
   YAML_LOAD_OPT3(visualization_params_, submap_point_size, float);
   YAML_LOAD_OPT3(visualization_params_, map_update_decimation, int);
+
+  YAML_LOAD_MEMBER_OPT(save_trajectory_to_file, bool);
+  YAML_LOAD_MEMBER_OPT(trajectory_output_file, std::string);
 
   // DLIO's own extrinsics (used internally by dlio_core, independent of
   // this module's own imu_pose_in_lidar_ used below for publishing): both
