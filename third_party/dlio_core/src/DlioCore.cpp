@@ -50,6 +50,12 @@ DlioCore::DlioCore(const Config & cfg) : cfg_(cfg)
   concave_hull_.setKeepInformation(true);
 
   for (auto * g : {&gicp_, &gicp_temp_}) {
+#ifdef DLIO_DETERMINISTIC
+    // The GICP Hessian and error accumulators are summed per thread under a
+    // dynamic schedule, so their rounding depends on how iterations were
+    // partitioned; one thread restores a fixed summation order.
+    g->setNumThreads(1);
+#endif
     g->setCorrespondenceRandomness(cfg_.gicp_k_correspondences);
     g->setMaxCorrespondenceDistance(cfg_.gicp_max_corr_dist);
     g->setMaximumIterations(cfg_.gicp_max_iterations);
@@ -647,6 +653,11 @@ DlioCore::ScanOutcome DlioCore::processOneScan(const PendingScan & scan)
       lock.unlock();
       submap_future_ =
         std::async(std::launch::async, &DlioCore::buildKeyframesAndSubmap, this, state_);
+#ifdef DLIO_DETERMINISTIC
+      // Wait for the rebuild to finish before the next scan, so the choice of
+      // registration target no longer depends on thread timing.
+      submap_future_.wait();
+#endif
     } else {
       main_loop_running_ = false;
       lock.unlock();
