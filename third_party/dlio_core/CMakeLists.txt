@@ -36,6 +36,22 @@ target_compile_definitions(dlio_core PUBLIC PCL_NO_PRECOMPILE)
 target_include_directories(dlio_core PUBLIC ${PCL_INCLUDE_DIRS})
 target_compile_definitions(dlio_core PUBLIC ${PCL_DEFINITIONS})
 
+# DLIO hands each keyframe/submap rebuild to an asynchronous task and then
+# decides, by polling whether that task happens to have finished, whether the
+# next scan registers against the new submap or the previous one; nano_gicp
+# additionally accumulates its GICP Hessian into per-thread buckets under a
+# dynamic OpenMP schedule. Both make results depend on thread timing, so runs
+# are not reproducible. This forces the rebuild inline and the order-sensitive
+# GICP loops onto one thread: runs become bit-exact, at some cost in speed and
+# none measured in accuracy. Needed for perturbation and sensitivity studies;
+# off by default.
+option(DLIO_DETERMINISTIC
+  "Rebuild the submap inline and serialize the GICP reductions (deterministic)"
+  OFF)
+if(DLIO_DETERMINISTIC)
+  target_compile_definitions(dlio_core PUBLIC DLIO_DETERMINISTIC)
+endif()
+
 set_target_properties(dlio_core PROPERTIES
   POSITION_INDEPENDENT_CODE ON
   CXX_STANDARD 17
