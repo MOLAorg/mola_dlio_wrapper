@@ -130,6 +130,8 @@ install(
 find_package(mola_input_mulran_dataset) # optional
 find_package(mola_input_rawlog) # optional
 find_package(mola_input_rosbag2) # optional
+find_package(mola_input_rosbag1) # optional
+find_package(mola_input_kitti_dataset) # optional
 
 mola_add_executable(
   TARGET  mola-dlio-cli
@@ -165,6 +167,22 @@ if(mola_input_rosbag2_FOUND)
   target_compile_definitions(mola-dlio-cli PRIVATE HAVE_MOLA_INPUT_ROSBAG2)
 else()
   message(STATUS "mola-dlio-cli: With rosbag2 = NO")
+endif()
+
+if(mola_input_rosbag1_FOUND)
+  message(STATUS "mola-dlio-cli: With rosbag1 = YES")
+  target_link_libraries(mola-dlio-cli mola::mola_input_rosbag1)
+  target_compile_definitions(mola-dlio-cli PRIVATE HAVE_MOLA_INPUT_ROSBAG1)
+else()
+  message(STATUS "mola-dlio-cli: With rosbag1 = NO")
+endif()
+
+if(mola_input_kitti_dataset_FOUND)
+  message(STATUS "mola-dlio-cli: With Kitti = YES")
+  target_link_libraries(mola-dlio-cli mola::mola_input_kitti_dataset)
+  target_compile_definitions(mola-dlio-cli PRIVATE HAVE_MOLA_INPUT_KITTI)
+else()
+  message(STATUS "mola-dlio-cli: With Kitti = NO")
 endif()
 
 # -----------------------------------------------------------------------------

@@ -1,0 +1,89 @@
+# -----------------------------------------------------------------------------
+#                        SLAM system definition for MOLA
+# This file defines:
+# DLIO odometry (see mola::DlioOdometry) from the TIERS dataset, read
+# directly from its ROS 1 ".bag" file via mola::Rosbag1Dataset.
+#
+# Mirrors mola_lidar_odometry/mola-cli-launchs/lidar_odometry_from_rosbag1.yaml
+# (the generic rosbag1 launch file that dataset's own `lio` job profile
+# uses), with the same MOLA_INPUT_ROSBAG1(_2/_3/_4) slots, topics and
+# extrinsics, so a cross-method comparison sees the identical rig. No GNSS
+# or wheel-odometry sensor entry here: DlioOdometry has no fusion input for
+# either.
+#
+# Extrinsics are a CO-LOCATED PLACEHOLDER (both LIDAR_POSE_* and IMU_POSE_*
+# default to identity), not a calibration -- see that dataset's own profile
+# header for why: these bags carry no /tf and the dataset publishes no
+# calibration file.
+#
+# No separate state_estimation module: DLIO is a self-contained
+# LiDAR-inertial estimator.
+#
+# Usage (normally invoked through run-single-test.sh instead):
+#   export MOLA_INPUT_ROSBAG1=/path/to/tiers.bag
+#   mola-cli $(ros2 pkg prefix mola_dlio_wrapper)/share/mola_dlio_wrapper/mola-cli-launchs/dlio_from_tiers.yaml
+#
+# Optional overrides:
+#   MOLA_WITH_GUI=false             -- headless mode
+#   MOLA_TIME_WARP=1.0              -- playback speed factor
+#   MOLA_QUIT_ON_DATASET_END=true   -- exit when bag ends
+# -----------------------------------------------------------------------------
+
+modules:
+  # =====================
+  # MolaViz / MolaVizImGui
+  # =====================
+  - name: viz
+    type: ${MOLA_GUI_MODULE|mola::MolaVizImGui}
+    enabled: ${MOLA_WITH_GUI|true}
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_VIZ|INFO}"
+    params:
+      imgui_app_name: dlio_tiers
+
+  # =====================
+  # Rosbag1Dataset (TIERS)
+  # =====================
+  - name: dataset_input
+    type: mola::Rosbag1Dataset
+    verbosity_level: "${MOLA_VERBOSITY_ROSBAG1|INFO}"
+    execution_rate: 50 # Hz
+    quit_mola_app_on_dataset_end: ${MOLA_QUIT_ON_DATASET_END|false}
+
+    gui_preview_sensors:
+      - raw_sensor_label: "${MOLA_LIDAR_NAME|lidar}"
+        decimation: 1
+        enabled: ${MOLA_WITH_GUI|true}
+        win_pos: 5 5 400 400
+
+    params:
+      rosbag_filename:
+        - ${MOLA_INPUT_ROSBAG1}
+        - ${MOLA_INPUT_ROSBAG1_2|}
+        - ${MOLA_INPUT_ROSBAG1_3|}
+        - ${MOLA_INPUT_ROSBAG1_4|}
+
+      base_link_frame_id: "${MOLA_TF_BASE_LINK|base_link}"
+      time_warp_scale: ${MOLA_TIME_WARP|1.0}
+      start_paused: ${MOLA_DATASET_START_PAUSED|false}
+
+      sensors:
+        - topic: ${MOLA_LIDAR_TOPIC|'/ouster/points'}
+          type: CObservationPointCloud
+          sensorLabel: "${MOLA_LIDAR_NAME|lidar}"
+          fixed_sensor_pose: "${LIDAR_POSE_X|0} ${LIDAR_POSE_Y|0} ${LIDAR_POSE_Z|0} ${LIDAR_POSE_YAW|0} ${LIDAR_POSE_PITCH|0} ${LIDAR_POSE_ROLL|0}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_LIDAR_POSE|false}
+
+        - topic: ${MOLA_IMU_TOPIC|'/imu'}
+          sensorLabel: "imu"
+          type: CObservationIMU
+          fixed_sensor_pose: "${IMU_POSE_X|0} ${IMU_POSE_Y|0} ${IMU_POSE_Z|0} ${IMU_POSE_YAW|0} ${IMU_POSE_PITCH|0} ${IMU_POSE_ROLL|0}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_IMU_POSE|false}
+
+  # =====================
+  # DLIO odometry
+  # =====================
+  - name: lidar_odom
+    type: mola::DlioOdometry
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_LO|INFO}"
+    raw_data_source: "dataset_input"
+    params: "${MOLA_ODOMETRY_PIPELINE_YAML|../pipelines/dlio-tiers.yaml}"

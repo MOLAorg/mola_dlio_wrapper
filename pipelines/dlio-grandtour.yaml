@@ -1,0 +1,91 @@
+# -----------------------------------------------------------------------------
+# DLIO algorithm parameters, tuned for the GrandTour dataset (ANYmal-D legged
+# robot, Hesai LiDAR + ADIS16475 IMU payload).
+#
+# Starting point is dlio-oxford-spires.yaml's tuning; no GrandTour-specific
+# GICP/keyframe retuning has been done yet -- see
+# 060_slam_quality_evaluation.md's DLIO multi-dataset section.
+# -----------------------------------------------------------------------------
+
+lidar_sensor_label: "lidar"
+imu_sensor_label: "imu"
+
+# Unlike every other dataset here, GrandTour's extrinsics come from the
+# recording's own /tf_static (base -> box_base -> hesai_lidar /
+# adis16475_imu), not a fixed pose in a profile -- see
+# mola_lidar_odometry/scripts/lib/profiles/grandtour.sh's header. DLIO's own
+# pipeline params have no TF-lookup mechanism, so this value is extracted
+# once from a real mission's *_tf_minimal.bag (box_base -> hesai_lidar:
+# t=[0.302523 -0.042547 -0.012841] q=[0.70933 -0.704852 -0.003921 -0.00442];
+# box_base -> adis16475_imu: t=[0.193258 -0.018485 0.07892]
+# q=[-0.704675 0.70948 0.006574 0.005251], both xyzw) and composed via real
+# pose math (mrpt::poses::CPose3D), not derived by hand. This is a per-rig
+# constant, not per-mission, so one extraction covers the whole dataset --
+# but it is unverified against a second mission's /tf_static.
+imu_pose_in_lidar_str: "-0.0258344 0.1090423 -0.0915437 0.7534965 -0.2815706 -0.1441546"
+baselink2lidar_pose_str: "0 0 0 0 0 0"
+
+# The LiDAR stream used here (points_undistorted) is already deskewed by the
+# dataset provider, same situation as KITTI -- see dlio-kitti.yaml. Kept
+# enabled anyway (harmless, proven not to break KITTI's synthetic-IMU path
+# either): a real IMU stream is available here, unlike KITTI, so DLIO's
+# normal deskew math still has real gyro/accel data to work with, it is just
+# integrating over an interval where the points were already motion-corrected.
+fallback_scan_period: 0.1
+
+crop_box_size: ${DLIO_CROPBOX_SIZE|1.0}
+blind: 0.0
+
+adaptive: true
+pointcloud_deskew: true
+pointcloud_voxelize: true
+voxel_filter_res: ${DLIO_VOXEL_RES|0.25}
+
+gravity: 9.80665
+compute_time_offset: true
+
+imu_calibrate: ${DLIO_IMU_CALIBRATE|true}
+imu_approximate_gravity: ${DLIO_IMU_APPROXIMATE_GRAVITY|true}
+imu_calibrate_gyro: true
+imu_calibrate_accel: true
+imu_calib_time_sec: ${DLIO_IMU_CALIB_TIME_SEC|3.0}
+imu_buffer_size: 5000
+
+keyframe_thresh_dist: ${DLIO_KEYFRAME_THRESH_D|1.0}
+keyframe_thresh_rot: ${DLIO_KEYFRAME_THRESH_R|45.0}
+
+submap_knn: 10
+submap_kcv: 10
+submap_kcc: 10
+
+gicp_min_num_points: 64
+gicp_k_correspondences: 16
+gicp_max_corr_dist: ${DLIO_GICP_MAX_CORR_DIST|0.5}
+gicp_max_iterations: 32
+gicp_transformation_epsilon: 0.01
+gicp_rotation_epsilon: 0.01
+gicp_init_lambda_factor: 1e-9
+
+geo_Kp: 4.5
+geo_Kv: 11.25
+geo_Kq: ${DLIO_GEO_KQ|4.0}
+geo_Kab: ${DLIO_GEO_KAB|2.25}
+geo_Kgb: 1.0
+geo_abias_max: 5.0
+geo_gbias_max: 0.5
+
+map_sparse_leaf_size: 0.25
+wait_until_move: false
+dense_map_filtered: false
+
+# --- Visualization ---
+show_trajectory: true
+show_submap: true
+camera_follows_vehicle: true
+current_pose_corner_size: 1.0
+submap_point_size: 2.0
+map_update_decimation: 10
+
+# --- Estimated trajectory output ---
+save_trajectory_to_file: ${MOLA_SAVE_TRAJECTORY|false}
+trajectory_output_file: ${MOLA_TUM_TRAJECTORY_OUTPUT|'estimated_trajectory.tum'}

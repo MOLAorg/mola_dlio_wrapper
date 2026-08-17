@@ -1,0 +1,86 @@
+# -----------------------------------------------------------------------------
+#                        SLAM system definition for MOLA
+# This file defines:
+# DLIO odometry (see mola::DlioOdometry) from the CitrusFarm dataset, read
+# directly from its ROS 1 "base_*.bag" file(s) via mola::Rosbag1Dataset.
+#
+# Mirrors mola_lidar_odometry/mola-cli-launchs/lidar_odometry_from_citrusfarm.yaml
+# (same MOLA_INPUT_ROSBAG1(_2/_3/_4) slots, topics and extrinsics), so a
+# cross-method comparison sees the identical rig. No odometry bag slot and
+# no wheel-odometry sensor entry here: DlioOdometry has no odometry-fusion
+# input at all (unlike the `lio` job, which deliberately does not fuse it
+# here either -- see that dataset's profile header).
+#
+# No separate state_estimation module: DLIO is a self-contained
+# LiDAR-inertial estimator.
+#
+# Usage (normally invoked through run-single-test.sh instead):
+#   export MOLA_INPUT_ROSBAG1=/path/to/base_2023-07-18-14-29-35_0.bag
+#   mola-cli $(ros2 pkg prefix mola_dlio_wrapper)/share/mola_dlio_wrapper/mola-cli-launchs/dlio_from_citrusfarm.yaml
+#
+# Optional overrides:
+#   MOLA_INPUT_ROSBAG1_2/_3/_4       -- extra parts of a multi-part sequence
+#   MOLA_WITH_GUI=false              -- headless mode
+#   MOLA_TIME_WARP=1.0               -- playback speed factor
+#   MOLA_QUIT_ON_DATASET_END=true    -- exit when bag ends
+# -----------------------------------------------------------------------------
+
+modules:
+  # =====================
+  # MolaViz / MolaVizImGui
+  # =====================
+  - name: viz
+    type: ${MOLA_GUI_MODULE|mola::MolaVizImGui}
+    enabled: ${MOLA_WITH_GUI|true}
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_VIZ|INFO}"
+    params:
+      imgui_app_name: dlio_citrusfarm
+
+  # =====================
+  # Rosbag1Dataset (CitrusFarm)
+  # =====================
+  - name: dataset_input
+    type: mola::Rosbag1Dataset
+    verbosity_level: "${MOLA_VERBOSITY_ROSBAG1|INFO}"
+    execution_rate: 50 # Hz
+    quit_mola_app_on_dataset_end: ${MOLA_QUIT_ON_DATASET_END|false}
+
+    gui_preview_sensors:
+      - raw_sensor_label: lidar
+        decimation: 1
+        enabled: ${MOLA_WITH_GUI|true}
+        win_pos: 5 5 400 400
+
+    params:
+      rosbag_filename:
+        - ${MOLA_INPUT_ROSBAG1}
+        - ${MOLA_INPUT_ROSBAG1_2|}
+        - ${MOLA_INPUT_ROSBAG1_3|}
+        - ${MOLA_INPUT_ROSBAG1_4|}
+
+      base_link_frame_id: ${MOLA_TF_BASE_LINK|imu}
+      time_warp_scale: ${MOLA_TIME_WARP|1.0}
+      start_paused: ${MOLA_DATASET_START_PAUSED|false}
+
+      sensors:
+        - topic: ${MOLA_IMU_TOPIC|/microstrain/imu/data} # Microstrain GX5: this IS base_link
+          type: CObservationIMU
+          sensorLabel: imu
+          fixed_sensor_pose: "${IMU_POSE_X|0} ${IMU_POSE_Y|0} ${IMU_POSE_Z|0} ${IMU_POSE_YAW|0} ${IMU_POSE_PITCH|0} ${IMU_POSE_ROLL|0}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_IMU_POSE|true}
+
+        - topic: ${MOLA_LIDAR_TOPIC|/velodyne_points} # Velodyne (spinning), ~10 Hz
+          type: CObservationPointCloud
+          sensorLabel: lidar
+          # T_imu_lidar, from the dataset's own CAD + Kalibr calibration chain:
+          fixed_sensor_pose: "${LIDAR_POSE_X|0.0285} ${LIDAR_POSE_Y|0.0091} ${LIDAR_POSE_Z|0.0776} ${LIDAR_POSE_YAW|179.8419} ${LIDAR_POSE_PITCH|-0.3290} ${LIDAR_POSE_ROLL|0.1130}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_LIDAR_POSE|true}
+
+  # =====================
+  # DLIO odometry
+  # =====================
+  - name: lidar_odom
+    type: mola::DlioOdometry
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_LO|INFO}"
+    raw_data_source: "dataset_input"
+    params: "${MOLA_ODOMETRY_PIPELINE_YAML|../pipelines/dlio-citrusfarm.yaml}"

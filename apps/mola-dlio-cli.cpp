@@ -33,6 +33,7 @@
 #include <mrpt/system/progress.h>
 #include <mrpt/system/string_utils.h>
 
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -51,6 +52,14 @@
 
 #if defined(HAVE_MOLA_INPUT_ROSBAG2)
 #include <mola_input_rosbag2/Rosbag2Dataset.h>
+#endif
+
+#if defined(HAVE_MOLA_INPUT_ROSBAG1)
+#include <mola_input_rosbag1/Rosbag1Dataset.h>
+#endif
+
+#if defined(HAVE_MOLA_INPUT_KITTI)
+#include <mola_input_kitti_dataset/KittiOdometryDataset.h>
 #endif
 
 namespace
@@ -111,12 +120,34 @@ struct Cli
     "",    "input-rosbag2", "INPUT DATASET: rosbag2. Input dataset in rosbag2 format (*.mcap)",
     false, "dataset.mcap",  "dataset.mcap",
     cmd};
+#endif
+
+#if defined(HAVE_MOLA_INPUT_ROSBAG1)
+  TCLAP::ValueArg<std::string> argRosbag1{
+    "",    "input-rosbag1", "INPUT DATASET: rosbag1. Input dataset in ROS 1 bag format (*.bag)",
+    false, "dataset.bag",   "dataset.bag",
+    cmd};
+#endif
+
+// Shared by both bag formats -- rosbag1 and rosbag2 read the same topic
+// names into the same lidar/imu sensor entries, see dataset_from_rosbag1()
+// and dataset_from_rosbag2() below.
+#if defined(HAVE_MOLA_INPUT_ROSBAG2) || defined(HAVE_MOLA_INPUT_ROSBAG1)
   TCLAP::ValueArg<std::string> arg_lidarTopic{
-    "",    "lidar-topic", "Only for rosbag2 input: the LiDAR point cloud topic name.",
+    "",    "lidar-topic", "Only for rosbag1/rosbag2 input: the LiDAR point cloud topic name.",
     false, "/lidar",      "/lidar",
     cmd};
   TCLAP::ValueArg<std::string> arg_imuTopic{
-    "", "imu-topic", "Only for rosbag2 input: the IMU topic name.", false, "/imu", "/imu", cmd};
+    "",    "imu-topic", "Only for rosbag1/rosbag2 input: the IMU topic name.",
+    false, "/imu",      "/imu",
+    cmd};
+#endif
+
+#if defined(HAVE_MOLA_INPUT_KITTI)
+  TCLAP::ValueArg<std::string> argKittiSeq{
+    "",    "input-kitti-seq", "INPUT DATASET: Use KITTI dataset sequence number 00|01|...",
+    false, "00",              "00",
+    cmd};
 #endif
 };  // end struct "Cli"
 
@@ -218,6 +249,177 @@ std::shared_ptr<mola::OfflineDatasetSource> dataset_from_rosbag2(
 }
 #endif
 
+#if defined(HAVE_MOLA_INPUT_ROSBAG1)
+std::shared_ptr<mola::OfflineDatasetSource> dataset_from_rosbag1(
+  Cli & cli, const std::string & rosbag1file, const mrpt::system::VerbosityLevel logLevel)
+{
+  auto o = std::make_shared<mola::Rosbag1Dataset>();
+  o->setMinLoggingLevel(logLevel);
+
+  // A comma-separated value becomes a YAML sequence, so a recording split
+  // across several bag files (e.g. CitrusFarm) is replayed as the single
+  // sequence it is. Rosbag1Dataset accepts a scalar or a sequence.
+  std::string bagsYaml;
+  {
+    std::vector<std::string> parts;
+    mrpt::system::tokenize(rosbag1file, ",", parts);
+    ASSERT_(!parts.empty());
+    if (parts.size() == 1) {
+      bagsYaml = "'" + mrpt::system::trim(parts[0]) + "'";
+    } else {
+      for (const auto & p : parts) {
+        bagsYaml += "\n        - '" + mrpt::system::trim(p) + "'";
+      }
+    }
+  }
+
+  // Same env var names as dataset_from_rosbag2() above and as
+  // mola-lidar-odometry-cli's own dataset_from_rosbag1(), so the same
+  // override snippet (and the same dataset profiles) work unchanged for
+  // this wrapper too. Unlike that CLI's version, this carries only the
+  // lidar and imu sensor entries: DLIO has no GNSS/wheel-odometry fusion
+  // path (DlioOdometry::initialize_frontend() only ever reads
+  // lidar_sensor_label/imu_sensor_label).
+  const auto cfg = mola::Yaml::FromText(mola::parse_yaml(mrpt::format(
+    R""""(
+    params:
+      rosbag_filename: %s
+      base_link_frame_id: "${MOLA_TF_BASE_LINK|base_link}"
+      sensors:
+        - topic: '%s'
+          type: CObservationPointCloud
+          sensorLabel: lidar
+          fixed_sensor_pose: "${LIDAR_POSE_X|0} ${LIDAR_POSE_Y|0} ${LIDAR_POSE_Z|0} ${LIDAR_POSE_YAW|0} ${LIDAR_POSE_PITCH|0} ${LIDAR_POSE_ROLL|0}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_LIDAR_POSE|false}
+        - topic: '%s'
+          type: CObservationIMU
+          sensorLabel: imu
+          fixed_sensor_pose: "${IMU_POSE_X|0} ${IMU_POSE_Y|0} ${IMU_POSE_Z|0} ${IMU_POSE_YAW|0} ${IMU_POSE_PITCH|0} ${IMU_POSE_ROLL|0}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_IMU_POSE|false}
+)"""",
+    bagsYaml.c_str(), cli.arg_lidarTopic.getValue().c_str(),
+    cli.arg_imuTopic.getValue().c_str())));
+
+  o->initialize(cfg);
+  return o;
+}
+#endif
+
+#if defined(HAVE_MOLA_INPUT_KITTI)
+// KittiOdometryDataset carries no IMU stream at all -- the standard KITTI
+// odometry-benchmark sequences never shipped one, unlike KITTI raw/tracking.
+// DLIO is IMU-mandatory (its IMU stream is the deskew clock and the
+// geometric observer's propagation clock, see DlioOdometry::onImuObservation()),
+// so this wraps the real dataset and interleaves one synthetic, constant-
+// gravity, zero-angular-rate CObservationIMU immediately before each real
+// LiDAR scan. That keeps DLIO's propagation clock ticking and its gravity/
+// bias calibration trivially converges to "level, stationary" -- the actual
+// motion estimate then comes entirely from LiDAR-only GICP-to-submap
+// registration, which is sound here because KITTI's scans are already
+// provider-deskewed (no per-point motion compensation from a real IMU is
+// needed either).
+//
+// Doubling datasetSize() (one synthetic-IMU timestep before each real scan
+// timestep) rather than merging both into one CSensoryFrame per timestep is
+// deliberate: main_odometry()'s loop below only ever takes ONE observation
+// per timestep (pointcloud, else IMU), so a merged frame would silently
+// drop whichever one it didn't pick.
+class KittiWithSyntheticImu : public mola::OfflineDatasetSource
+{
+ public:
+  explicit KittiWithSyntheticImu(std::shared_ptr<mola::KittiOdometryDataset> inner)
+  : inner_(std::move(inner))
+  {
+  }
+
+  size_t datasetSize() const override { return 2 * inner_->datasetSize(); }
+
+  mrpt::obs::CSensoryFrame::Ptr datasetGetObservations(size_t timestep) const override
+  {
+    const size_t realIdx = timestep / 2;
+    if (timestep % 2 == 1) {
+      return inner_->datasetGetObservations(realIdx);
+    }
+
+    // Synthetic IMU tick, timestamped just before the scan it precedes.
+    const auto realSf = inner_->datasetGetObservations(realIdx);
+    const auto lidarObs = realSf->getObservationByClass<mrpt::obs::CObservationPointCloud>();
+    ASSERT_(lidarObs);
+
+    // mrpt::Clock::fromDouble()/TTimeStamp's raw tick count has no epoch
+    // offset baked in -- fromDouble(0.0) IS the representable minimum, and
+    // KITTI's own sequence-relative timestamps (KittiOdometryDataset reads
+    // them straight from times.txt) start at exactly 0.0. Subtracting a
+    // fixed offset without this clamp underflows the underlying unsigned
+    // tick count into a garbage multi-millennium timestamp for that first
+    // scan -- which then poisons DlioCore::first_imu_stamp_ (set from
+    // whatever this function returns first) and permanently fails its
+    // `t_since_first_imu < imu_calib_time_sec` check, so calibration simply
+    // never completes and no output is ever produced (confirmed: this was
+    // silent, no error, no log -- the only symptom is an empty output
+    // trajectory no matter how many scans are fed). The clamp costs at most
+    // the very first scan (tied to its own synthetic IMU tick, dropped by
+    // the `scan_stamp_ <= imu_buffer_.back().stamp` check below) --
+    // harmless, DLIO's real-IMU startup already drops several seconds of
+    // scans during calibration regardless.
+    const double lidarT = mrpt::Clock::toDouble(lidarObs->timestamp);
+    auto imu = mrpt::obs::CObservationIMU::Create();
+    imu->sensorLabel = "imu";
+    imu->timestamp = mrpt::Clock::fromDouble(std::max(0.0, lidarT - 0.001));
+    imu->set(mrpt::obs::IMU_X_ACC, 0.0);
+    imu->set(mrpt::obs::IMU_Y_ACC, 0.0);
+    imu->set(mrpt::obs::IMU_Z_ACC, kGravity);
+    imu->set(mrpt::obs::IMU_WX, 0.0);
+    imu->set(mrpt::obs::IMU_WY, 0.0);
+    imu->set(mrpt::obs::IMU_WZ, 0.0);
+
+    auto sf = mrpt::obs::CSensoryFrame::Create();
+    sf->insert(imu);
+    return sf;
+  }
+
+  bool hasGroundTruthTrajectory() const override { return inner_->hasGroundTruthTrajectory(); }
+  mola::trajectory_t getGroundTruthTrajectory() const override
+  {
+    return inner_->getGroundTruthTrajectory();
+  }
+
+ private:
+  // Standard gravity magnitude (m/s^2); sign matches a stationary, level
+  // accelerometer reading +g on its up axis, the same convention as
+  // dlio-oxford-spires.yaml's `gravity: 9.80665` -- verify against
+  // dlio_core's actual sign convention the first time this runs for real.
+  static constexpr double kGravity = 9.80665;
+
+  std::shared_ptr<mola::KittiOdometryDataset> inner_;
+};
+
+std::shared_ptr<mola::OfflineDatasetSource> dataset_from_kitti(
+  const std::string & kittiSeqNumber, const mrpt::system::VerbosityLevel logLevel)
+{
+  auto o = std::make_shared<mola::KittiOdometryDataset>();
+  o->setMinLoggingLevel(logLevel);
+
+  const auto cfg = mola::Yaml::FromText(mola::parse_yaml(mrpt::format(
+    R""""(
+    params:
+      base_dir: ${KITTI_BASE_DIR}
+      sequence: '%s'
+      time_warp_scale: 1.0
+      clouds_as_organized_points: false
+      publish_lidar: true
+      publish_image_0: false
+      publish_image_1: false
+      publish_ground_truth: true
+)"""",
+    kittiSeqNumber.c_str())));
+
+  o->initialize(cfg);
+
+  return std::make_shared<KittiWithSyntheticImu>(o);
+}
+#endif
+
 void mola_signal_handler(int s)
 {
   std::cerr << "Caught signal " << s << ". Shutting down...\n";
@@ -266,6 +468,16 @@ int main_odometry(Cli & cli)
 #if defined(HAVE_MOLA_INPUT_ROSBAG2)
     if (cli.argRosbag2.isSet()) {
     dataset = dataset_from_rosbag2(cli, cli.argRosbag2.getValue(), logLevel);
+  } else
+#endif
+#if defined(HAVE_MOLA_INPUT_ROSBAG1)
+    if (cli.argRosbag1.isSet()) {
+    dataset = dataset_from_rosbag1(cli, cli.argRosbag1.getValue(), logLevel);
+  } else
+#endif
+#if defined(HAVE_MOLA_INPUT_KITTI)
+    if (cli.argKittiSeq.isSet()) {
+    dataset = dataset_from_kitti(cli.argKittiSeq.getValue(), logLevel);
   } else
 #endif
   {
