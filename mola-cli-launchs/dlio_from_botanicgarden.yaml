@@ -1,0 +1,83 @@
+# -----------------------------------------------------------------------------
+#                        SLAM system definition for MOLA
+# This file defines:
+# DLIO odometry (see mola::DlioOdometry) from the BotanicGarden dataset, read
+# directly from its ROS 1 ".bag" file via mola::Rosbag1Dataset.
+#
+# Mirrors mola_lidar_odometry/mola-cli-launchs/lidar_odometry_from_botanicgarden.yaml
+# (same bag, same topics, same extrinsics, same env var names -- including
+# BOTANICGARDEN_LIO_BAG/BOTANICGARDEN_GT_BAG, not the generic
+# MOLA_INPUT_ROSBAG1 slots, matching that file's own convention) so a
+# cross-method comparison sees the identical rig. No wheel-odometry or
+# ground-truth sensor entry here: DlioOdometry has no odometry-fusion input
+# and no use for a ground-truth observation stream.
+#
+# No separate state_estimation module: DLIO is a self-contained
+# LiDAR-inertial estimator.
+#
+# Usage (normally invoked through run-single-test.sh instead):
+#   export BOTANICGARDEN_LIO_BAG=/path/to/1018_00_LIO.bag
+#   mola-cli $(ros2 pkg prefix mola_dlio_wrapper)/share/mola_dlio_wrapper/mola-cli-launchs/dlio_from_botanicgarden.yaml
+#
+# Optional overrides:
+#   MOLA_WITH_GUI=false             -- headless mode
+#   MOLA_TIME_WARP=1.0              -- playback speed factor
+#   MOLA_QUIT_ON_DATASET_END=true   -- exit when bag ends
+# -----------------------------------------------------------------------------
+
+modules:
+  # =====================
+  # MolaViz / MolaVizImGui
+  # =====================
+  - name: viz
+    type: ${MOLA_GUI_MODULE|mola::MolaVizImGui}
+    enabled: ${MOLA_WITH_GUI|true}
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_VIZ|INFO}"
+    params:
+      imgui_app_name: dlio_botanicgarden
+
+  # =====================
+  # Rosbag1Dataset (BotanicGarden)
+  # =====================
+  - name: dataset_input
+    type: mola::Rosbag1Dataset
+    verbosity_level: "${MOLA_VERBOSITY_ROSBAG1|INFO}"
+    execution_rate: 50 # Hz
+    quit_mola_app_on_dataset_end: ${MOLA_QUIT_ON_DATASET_END|false}
+
+    gui_preview_sensors:
+      - raw_sensor_label: lidar
+        decimation: 1
+        enabled: ${MOLA_WITH_GUI|true}
+        win_pos: 5 5 400 400
+
+    params:
+      rosbag_filename:
+        - ${BOTANICGARDEN_LIO_BAG}
+
+      base_link_frame_id: ${MOLA_TF_BASE_LINK|xsens}
+      time_warp_scale: ${MOLA_TIME_WARP|1.0}
+      start_paused: ${MOLA_DATASET_START_PAUSED|false}
+
+      sensors:
+        - topic: ${MOLA_IMU_TOPIC|/imu/data}   # Xsens MTi-680G, ~400 Hz: this IS base_link
+          type: CObservationIMU
+          sensorLabel: imu
+          fixed_sensor_pose: "${IMU_POSE_X|0} ${IMU_POSE_Y|0} ${IMU_POSE_Z|0} ${IMU_POSE_YAW|0} ${IMU_POSE_PITCH|0} ${IMU_POSE_ROLL|0}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_IMU_POSE|true}
+
+        - topic: ${MOLA_LIDAR_TOPIC|/velodyne_points}   # Velodyne VLP-16, ~10 Hz
+          type: CObservationPointCloud
+          sensorLabel: lidar
+          # T_xsens_vlp16:
+          fixed_sensor_pose: "${LIDAR_POSE_X|0.0584868} ${LIDAR_POSE_Y|0.0084042} ${LIDAR_POSE_Z|0.1689155} ${LIDAR_POSE_YAW|-1.448155} ${LIDAR_POSE_PITCH|0.097462} ${LIDAR_POSE_ROLL|0.444791}"
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_LIDAR_POSE|true}
+
+  # =====================
+  # DLIO odometry
+  # =====================
+  - name: lidar_odom
+    type: mola::DlioOdometry
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_LO|INFO}"
+    raw_data_source: "dataset_input"
+    params: "${MOLA_ODOMETRY_PIPELINE_YAML|../pipelines/dlio-botanic.yaml}"

@@ -27,7 +27,9 @@
   <!-- dataset input sources (all are actually optional) -->
   <depend>mola_input_mulran_dataset</depend>
   <depend>mola_input_rosbag2</depend>
+  <depend>mola_input_rosbag1</depend>
   <depend>mola_input_rawlog</depend>
+  <depend>mola_input_kitti_dataset</depend>
 
   <!-- Entries to make ROS 2 to discover this as a proper package -->
   <build_depend>ros_environment</build_depend>

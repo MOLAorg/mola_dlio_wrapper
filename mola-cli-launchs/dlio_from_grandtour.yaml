@@ -1,0 +1,88 @@
+# -----------------------------------------------------------------------------
+#                        SLAM system definition for MOLA
+# This file defines:
+# DLIO odometry (see mola::DlioOdometry) from the GrandTour dataset, read
+# directly from its per-topic ROS 1 ".bag" files via mola::Rosbag1Dataset.
+#
+# Mirrors mola_lidar_odometry/mola-cli-launchs/lidar_odometry_from_rosbag1.yaml
+# (the generic rosbag1 launch file that dataset's own `lio` job profile
+# uses), with the same MOLA_INPUT_ROSBAG1(_2/_3/_4) slots and topics. Unlike
+# every other DLIO dataset launch file here, no fixed_sensor_pose is set for
+# the LiDAR: this mission's own /tf_static (from its *_tf_minimal.bag, one
+# of the joined bag slots) carries the real extrinsics, same as the `lio`
+# job. DLIO's own static imu_pose_in_lidar_str pipeline parameter (in
+# ../pipelines/dlio-grandtour.yaml) is extracted from that same /tf_static
+# separately -- see that file's header for how.
+#
+# No separate state_estimation module: DLIO is a self-contained
+# LiDAR-inertial estimator.
+#
+# Usage (normally invoked through run-single-test.sh instead):
+#   export MOLA_INPUT_ROSBAG1=/path/to/<mission>_hesai_undist.bag
+#   export MOLA_INPUT_ROSBAG1_2=/path/to/<mission>_tf_minimal.bag
+#   export MOLA_INPUT_ROSBAG1_3=/path/to/<mission>_adis.bag
+#   mola-cli $(ros2 pkg prefix mola_dlio_wrapper)/share/mola_dlio_wrapper/mola-cli-launchs/dlio_from_grandtour.yaml
+#
+# Optional overrides:
+#   MOLA_WITH_GUI=false             -- headless mode
+#   MOLA_TIME_WARP=1.0              -- playback speed factor
+#   MOLA_QUIT_ON_DATASET_END=true   -- exit when bag ends
+# -----------------------------------------------------------------------------
+
+modules:
+  # =====================
+  # MolaViz / MolaVizImGui
+  # =====================
+  - name: viz
+    type: ${MOLA_GUI_MODULE|mola::MolaVizImGui}
+    enabled: ${MOLA_WITH_GUI|true}
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_VIZ|INFO}"
+    params:
+      imgui_app_name: dlio_grandtour
+
+  # =====================
+  # Rosbag1Dataset (GrandTour)
+  # =====================
+  - name: dataset_input
+    type: mola::Rosbag1Dataset
+    verbosity_level: "${MOLA_VERBOSITY_ROSBAG1|INFO}"
+    execution_rate: 50 # Hz
+    quit_mola_app_on_dataset_end: ${MOLA_QUIT_ON_DATASET_END|false}
+
+    gui_preview_sensors:
+      - raw_sensor_label: "${MOLA_LIDAR_NAME|lidar}"
+        decimation: 1
+        enabled: ${MOLA_WITH_GUI|true}
+        win_pos: 5 5 400 400
+
+    params:
+      rosbag_filename:
+        - ${MOLA_INPUT_ROSBAG1}
+        - ${MOLA_INPUT_ROSBAG1_2|}
+        - ${MOLA_INPUT_ROSBAG1_3|}
+        - ${MOLA_INPUT_ROSBAG1_4|}
+
+      base_link_frame_id: "${MOLA_TF_BASE_LINK|base}"
+      time_warp_scale: ${MOLA_TIME_WARP|1.0}
+      start_paused: ${MOLA_DATASET_START_PAUSED|false}
+
+      sensors:
+        - topic: ${MOLA_LIDAR_TOPIC|/boxi/hesai/points_undistorted}
+          type: CObservationPointCloud
+          sensorLabel: "${MOLA_LIDAR_NAME|lidar}"
+          # No fixed_sensor_pose: read from this mission's own /tf_static.
+          use_fixed_sensor_pose: ${MOLA_USE_FIXED_LIDAR_POSE|false}
+
+        - topic: ${MOLA_IMU_TOPIC|/boxi/adis/imu}
+          sensorLabel: "imu"
+          type: CObservationIMU
+          use_fixed_sensor_pose: false
+
+  # =====================
+  # DLIO odometry
+  # =====================
+  - name: lidar_odom
+    type: mola::DlioOdometry
+    verbosity_level: "${MOLA_VERBOSITY_MOLA_LO|INFO}"
+    raw_data_source: "dataset_input"
+    params: "${MOLA_ODOMETRY_PIPELINE_YAML|../pipelines/dlio-grandtour.yaml}"
