@@ -1,0 +1,109 @@
+# -----------------------------------------------------------------------------
+# DLIO algorithm parameters, tuned for the Newer College Dataset, 2020
+# collection (Ouster OS1-64 + its built-in IMU, handheld pole rig walked
+# around New College, Oxford).
+#
+# Starting point is dlio-oxford-spires.yaml's tuning: the same kind of
+# platform (handheld, campus, mixed built and vegetated) at the same scan
+# rate. Only the extrinsics and the sensor-specific notes below are changed;
+# no Newer College specific GICP/keyframe retuning has been done yet, on
+# purpose, so the first number this file produces is a like-for-like
+# cross-method reference against mola_fast_lio2_wrapper's
+# fastlio2-newer-college.yaml and against mola_lidar_odometry's own
+# newer-college profile rather than a second, simultaneous change.
+#
+# The 2021 collection (OS0-128 + Alphasense) is a different rig with
+# different topic names and different extrinsics; it needs its own file, not
+# an override of this one.
+# -----------------------------------------------------------------------------
+
+lidar_sensor_label: "lidar"
+imu_sensor_label: "imu"
+
+# T_lidar_imu: pose of the IMU frame wrt the LiDAR frame. base_link here IS
+# the LiDAR (mola_lidar_odometry's newer-college profile sets
+# MOLA_TF_BASE_LINK=os1_lidar), so baselink2lidar below stays identity and
+# this carries the whole extrinsic.
+#
+# Composed from the bags' own /tf_static rather than guessed:
+# /os1_sensor -> /os1_imu is t=(0.006253, -0.011775, 0.007645) with identity
+# rotation, /os1_sensor -> /os1_lidar is t=(0, 0, 0.036180) with a 180 deg
+# yaw. The published kalibr output (04_calibration/kalibr_output/
+# ouster_imu_lidar_transforms.yaml) agrees: quaternion (0, 0, 1, 0).
+#
+# THE 180 DEG IS THE PART THAT IS EASY TO MISS. The Ouster's own IMU and
+# lidar frames are anti-aligned in azimuth and only 0.032 m apart, so a
+# translation-only version of this line is wrong twice over -- the same trap
+# the grand-tour configs hit.
+imu_pose_in_lidar_str: "-0.006253 0.011775 -0.028535 180 0 0"
+baselink2lidar_pose_str: "0 0 0 0 0 0"
+
+# Fallback only: the OS1-64 PointCloud2 in these bags carries a real
+# per-point "t" field (UINT32, offset 20, in a 48-byte 1024x64 point --
+# confirmed against the stripped bags), so deskewing uses real stamps and
+# this is unused in practice. The lidar runs at 10 Hz.
+fallback_scan_period: 0.1
+
+# Near-field cut. The rig is carried on a pole by a walking operator, so the
+# same ~1 m of carrier-attached returns Oxford Spires has is present here;
+# without the cut they act as a false zero-motion constraint. Same value and
+# same reasoning as dlio-oxford-spires.yaml.
+crop_box_size: ${DLIO_CROPBOX_SIZE|1.0}
+blind: 0.0
+
+adaptive: true
+pointcloud_deskew: true
+pointcloud_voxelize: true
+voxel_filter_res: ${DLIO_VOXEL_RES|0.25}
+
+gravity: 9.80665
+compute_time_offset: true
+
+# IMU calibration: no bias/scale calibration is published for the OS1's
+# built-in IMU, so estimate gyro/accel bias and the initial gravity-aligned
+# orientation from a startup static window, as upstream defaults to.
+imu_calibrate: ${DLIO_IMU_CALIBRATE|true}
+imu_approximate_gravity: ${DLIO_IMU_APPROXIMATE_GRAVITY|true}
+imu_calibrate_gyro: true
+imu_calibrate_accel: true
+imu_calib_time_sec: ${DLIO_IMU_CALIB_TIME_SEC|3.0}
+imu_buffer_size: 5000
+
+keyframe_thresh_dist: ${DLIO_KEYFRAME_THRESH_D|1.0}
+keyframe_thresh_rot: ${DLIO_KEYFRAME_THRESH_R|45.0}
+
+submap_knn: 10
+submap_kcv: 10
+submap_kcc: 10
+
+gicp_min_num_points: 64
+gicp_k_correspondences: 16
+gicp_max_corr_dist: ${DLIO_GICP_MAX_CORR_DIST|0.5}
+gicp_max_iterations: 32
+gicp_transformation_epsilon: 0.01
+gicp_rotation_epsilon: 0.01
+gicp_init_lambda_factor: 1e-9
+
+geo_Kp: 4.5
+geo_Kv: 11.25
+geo_Kq: ${DLIO_GEO_KQ|4.0}
+geo_Kab: ${DLIO_GEO_KAB|2.25}
+geo_Kgb: 1.0
+geo_abias_max: 5.0
+geo_gbias_max: 0.5
+
+map_sparse_leaf_size: 0.25
+wait_until_move: false
+dense_map_filtered: false
+
+# --- Visualization ---
+show_trajectory: true
+show_submap: true
+camera_follows_vehicle: true
+current_pose_corner_size: 1.0
+submap_point_size: 2.0
+map_update_decimation: 10
+
+# --- Estimated trajectory output ---
+save_trajectory_to_file: ${MOLA_SAVE_TRAJECTORY|false}
+trajectory_output_file: ${MOLA_TUM_TRAJECTORY_OUTPUT|'estimated_trajectory.tum'}
