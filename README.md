@@ -9,7 +9,10 @@ so DLIO can be run on MOLA-supported datasets for comparison against other
 LiDAR-inertial odometry methods (see
 [`mola-lo`](https://github.com/MOLAorg/mola_lidar_odometry)).
 
-**Status: private, work in progress, internal research use only.**
+**Status: public, work in progress.** The module and the offline CLI work;
+dataset coverage is still limited to Oxford Spires (see below). Licensing of
+everything vendored here is permissive and documented in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## What makes DLIO different
 
