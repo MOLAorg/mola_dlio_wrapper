@@ -39,9 +39,9 @@ find_package(MPI QUIET COMPONENTS C)
 # CMakeLists.txt links `pcl_surface` (and its `qhull_r` dependency) directly
 # by name instead of going through ${PCL_LIBRARIES}.
 find_package(PCL 1.8 REQUIRED COMPONENTS common filters registration kdtree)
-find_package(mrpt-maps REQUIRED)
-find_package(mrpt-obs REQUIRED)
-find_package(mrpt-tclap REQUIRED)
+find_package(mrpt_maps REQUIRED)
+find_package(mrpt_obs REQUIRED)
+find_package(CLI11 REQUIRED)
 find_package(mola_kernel REQUIRED)
 find_package(mola_yaml REQUIRED)
 
@@ -74,8 +74,8 @@ mola_add_library(
     # Last:
     module/src/register.cpp
   PUBLIC_LINK_LIBRARIES
-    mrpt::maps
-    mrpt::obs
+    mrpt::mrpt_maps
+    mrpt::mrpt_obs
     mola::mola_kernel
     mola::mola_yaml
   PRIVATE_LINK_LIBRARIES
@@ -87,7 +87,7 @@ mola_add_library(
     dlio_core
   CMAKE_DEPENDENCIES
     mola_kernel
-    mrpt-maps
+    mrpt_maps
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -141,8 +141,8 @@ mola_add_executable(
     # For dlio_core/Types.hpp, transitively pulled in by the public
     # DlioOdometry.h.
     dlio_core
-    mrpt::maps
-    mrpt::tclap
+    mrpt::mrpt_maps
+    CLI11::CLI11
 )
 
 if(mola_input_mulran_dataset_FOUND)

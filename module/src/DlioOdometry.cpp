@@ -31,9 +31,9 @@
 #include <mrpt/img/color_maps.h>
 #include <mrpt/obs/CObservationIMU.h>
 #include <mrpt/obs/CObservationPointCloud.h>
-#include <mrpt/opengl/CPointCloudColoured.h>
-#include <mrpt/opengl/CSetOfObjects.h>
-#include <mrpt/opengl/stock_objects.h>
+#include <mrpt/viz/CPointCloudColoured.h>
+#include <mrpt/viz/CSetOfObjects.h>
+#include <mrpt/viz/stock_objects.h>
 
 #include <sstream>
 
@@ -94,7 +94,7 @@ void DlioOdometry::shutdownCleanup()
     auto lck = mrpt::lockHelper(trajectory_mtx_);
     MRPT_LOG_INFO_STREAM(
       "Saving estimated trajectory with " << trajectory_.size() << " keyframes to file '"
-                                           << trajectory_output_file_ << "' in TUM format...");
+                                          << trajectory_output_file_ << "' in TUM format...");
     trajectory_.saveToTextFile_TUM(trajectory_output_file_);
     MRPT_LOG_INFO("Final trajectory saved.");
   }
@@ -319,9 +319,9 @@ void DlioOdometry::updateVisualization(
   }
 
   if (visualization_params_.current_pose_corner_size > 0) {
-    auto glVehicle = mrpt::opengl::CSetOfObjects::Create();
+    auto glVehicle = mrpt::viz::CSetOfObjects::Create();
     glVehicle->insert(
-      mrpt::opengl::stock_objects::CornerXYZ(visualization_params_.current_pose_corner_size));
+      mrpt::viz::stock_objects::CornerXYZ(visualization_params_.current_pose_corner_size));
     glVehicle->setPose(lidarPose);
     visualizer_->update_3d_object("dlio/vehicle", glVehicle);
   }
@@ -344,12 +344,12 @@ void DlioOdometry::updateVisualization(
 void DlioOdometry::updateVisualizationPath(const mrpt::poses::CPose3D & lidarPose)
 {
   if (!visualization_params_.show_trajectory) {
-    visualizer_->update_3d_object("dlio/path", mrpt::opengl::CSetOfObjects::Create());
+    visualizer_->update_3d_object("dlio/path", mrpt::viz::CSetOfObjects::Create());
     return;
   }
 
   if (!gl_estimated_path_) {
-    gl_estimated_path_ = mrpt::opengl::CSetOfLines::Create();
+    gl_estimated_path_ = mrpt::viz::CSetOfLines::Create();
     gl_estimated_path_->setColor_u8(0x20, 0xa0, 0x20, 0xff);
   }
 
@@ -360,15 +360,15 @@ void DlioOdometry::updateVisualizationPath(const mrpt::poses::CPose3D & lidarPos
     gl_estimated_path_->appendLineStrip(t);
   }
 
-  auto pathGrp = mrpt::opengl::CSetOfObjects::Create();
-  pathGrp->insert(mrpt::opengl::CSetOfLines::Create(*gl_estimated_path_));
+  auto pathGrp = mrpt::viz::CSetOfObjects::Create();
+  pathGrp->insert(mrpt::viz::CSetOfLines::Create(*gl_estimated_path_));
   visualizer_->update_3d_object("dlio/path", pathGrp);
 }
 
 void DlioOdometry::updateVisualizationSubmap()
 {
   if (!visualization_params_.show_submap) {
-    visualizer_->update_3d_object("dlio/submap", mrpt::opengl::CSetOfObjects::Create());
+    visualizer_->update_3d_object("dlio/submap", mrpt::viz::CSetOfObjects::Create());
     return;
   }
 
@@ -384,14 +384,14 @@ void DlioOdometry::updateVisualizationSubmap()
 
   const auto pointsMap = toMrptPointsMap(*submapPts);
 
-  auto glCloud = mrpt::opengl::CPointCloudColoured::Create();
+  auto glCloud = mrpt::viz::CPointCloudColoured::Create();
   glCloud->loadFromPointsMap(pointsMap.get());
   glCloud->setPointSize(visualization_params_.submap_point_size);
 
   const auto bbox = pointsMap->boundingBox();
   glCloud->recolorizeByCoordinate(bbox.min.z, bbox.max.z, 2 /*Z*/, mrpt::img::TColormap::cmJET);
 
-  auto grp = mrpt::opengl::CSetOfObjects::Create();
+  auto grp = mrpt::viz::CSetOfObjects::Create();
   grp->insert(glCloud);
   visualizer_->update_3d_object("dlio/submap", grp);
 }
