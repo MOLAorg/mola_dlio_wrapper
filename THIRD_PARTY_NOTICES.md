@@ -107,6 +107,16 @@ change beyond stripping ROS types/calls is listed here (see also
    than a state read. Not a change to the estimation math; documented in
    `dlio_core/DlioCore.h`, `Types.hpp`, and `README.md` since it is exactly the kind of
    cross-method difference this benchmark suite exists to surface.
+6. **Deskewed cloud missing PCL `width`/`height` metadata, fixed.** Upstream builds the
+   deskewed cloud from a `sensor_msgs::PointCloud2`, whose ROS-to-PCL conversion always
+   sets `width`/`height`/`is_dense`. This port's `preprocessAndDeskew()` instead resizes
+   `deskewed->points` directly, leaving those fields at their default-constructed zero.
+   `width == 0` is silently harmless almost everywhere it flows, but
+   `pcl::transformPointCloud()` divides by it when copying the cloud, so any consumer of
+   an un-voxelized keyframe cloud (e.g. `buildKeyframesAndSubmap()`) hit a
+   divide-by-zero. Fixed by setting `width`/`height`/`is_dense` right after the resize,
+   matching the convention already used for `original` earlier in the same function. Not
+   an algorithm change -- purely restores metadata a ROS-based build gets for free.
 
 No other algorithmic step (GICP setup, deskewing math, the geometric observer's
 propagation/update equations, keyframe selection, submap construction via convex/concave

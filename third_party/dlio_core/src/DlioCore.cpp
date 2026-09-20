@@ -681,6 +681,15 @@ DlioCore::ScanOutcome DlioCore::preprocessAndDeskew(
   if (cfg_.pointcloud_deskew) {
     deskewed = PointCloudXYZI::Ptr(new PointCloudXYZI());
     deskewed->points.resize(original_scan_->points.size());
+    // width/height/is_dense are not auto-derived from points.resize(): leaving
+    // them at their default-constructed 0/0 makes this an "organized" cloud
+    // of zero width, which later divides by width in
+    // pcl::PointCloud::assign() (via pcl::transformPointCloud(), e.g. from
+    // buildKeyframesAndSubmap()) -- see the unorganized-cloud convention
+    // already used for `original` above.
+    deskewed->width = static_cast<std::uint32_t>(deskewed->points.size());
+    deskewed->height = 1;
+    deskewed->is_dense = original_scan_->is_dense;
 
     std::vector<const PointType *> sorted;
     sorted.reserve(original_scan_->points.size());
