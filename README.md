@@ -46,6 +46,15 @@ its vendored `nano_gicp` (GICP + a bundled `nanoflann`).
   `mola_input_rosbag2`), same approach as `mola_lidar_odometry`'s and
   `mola_fast_lio2_wrapper`'s Oxford Spires launch files. MulRan is out of
   scope for this wrapper (see the parent plan).
+- **LiDAR-only rawlogs** (e.g. MVSim synthetic datasets): `--input-rawlog`
+  plus `--synthetic-imu`, which interleaves a constant-gravity, zero-rate IMU
+  sample before each scan (the same decorator KITTI input always uses). See
+  `pipelines/dlio-mvsim.yaml`:
+
+  ```bash
+  mola-dlio-cli -c pipelines/dlio-mvsim.yaml --synthetic-imu \
+    --input-rawlog dataset.rawlog --output-tum-path out.tum
+  ```
 
 ## Build
 

@@ -112,6 +112,8 @@ struct Cli
   bool argKittiSeq_set{false};
 #endif
 
+  bool arg_syntheticImu{false};
+
   CLI::Option * optVerbosity{nullptr};
   CLI::Option * optPlugins{nullptr};
   CLI::Option * optOutPath{nullptr};
@@ -179,6 +181,11 @@ struct Cli
     cmd.add_option(
       "--imu-topic", arg_imuTopic, "Only for rosbag1/rosbag2 input: the IMU topic name.");
 #endif
+
+    cmd.add_flag(
+      "--synthetic-imu", arg_syntheticImu,
+      "Interleave a synthetic, stationary IMU reading before each LiDAR scan, for LiDAR-only "
+      "datasets (KITTI input always does this)");
 
 #if defined(HAVE_MOLA_INPUT_KITTI)
     optKittiSeq = cmd.add_option(
@@ -365,29 +372,27 @@ std::shared_ptr<mola::OfflineDatasetSource> dataset_from_rosbag1(
 }
 #endif
 
-#if defined(HAVE_MOLA_INPUT_KITTI)
-// KittiOdometryDataset carries no IMU stream at all -- the standard KITTI
-// odometry-benchmark sequences never shipped one, unlike KITTI raw/tracking.
-// DLIO is IMU-mandatory (its IMU stream is the deskew clock and the
-// geometric observer's propagation clock, see DlioOdometry::onImuObservation()),
-// so this wraps the real dataset and interleaves one synthetic, constant-
-// gravity, zero-angular-rate CObservationIMU immediately before each real
-// LiDAR scan. That keeps DLIO's propagation clock ticking and its gravity/
-// bias calibration trivially converges to "level, stationary" -- the actual
+// Some datasets carry no IMU stream at all (e.g. KITTI's odometry-benchmark
+// sequences, or LiDAR-only synthetic rawlogs), while DLIO is IMU-mandatory
+// (its IMU stream is the deskew clock and the geometric observer's
+// propagation clock, see DlioOdometry::onImuObservation()). This wraps the
+// real dataset and interleaves one synthetic, constant-gravity,
+// zero-angular-rate CObservationIMU immediately before each real LiDAR scan.
+// That keeps DLIO's propagation clock ticking and its gravity/bias
+// calibration trivially converges to "level, stationary" -- the actual
 // motion estimate then comes entirely from LiDAR-only GICP-to-submap
-// registration, which is sound here because KITTI's scans are already
-// provider-deskewed (no per-point motion compensation from a real IMU is
-// needed either).
+// registration. Only sound for scans that need no IMU-based deskew.
 //
-// Doubling datasetSize() (one synthetic-IMU timestep before each real scan
+// Doubling datasetSize() (one synthetic-IMU timestep before each real
 // timestep) rather than merging both into one CSensoryFrame per timestep is
 // deliberate: main_odometry()'s loop below only ever takes ONE observation
 // per timestep (pointcloud, else IMU), so a merged frame would silently
-// drop whichever one it didn't pick.
-class KittiWithSyntheticImu : public mola::OfflineDatasetSource
+// drop whichever one it didn't pick. Real timesteps without a LiDAR scan get
+// an empty synthetic slot.
+class WithSyntheticImu : public mola::OfflineDatasetSource
 {
 public:
-  explicit KittiWithSyntheticImu(std::shared_ptr<mola::KittiOdometryDataset> inner)
+  explicit WithSyntheticImu(std::shared_ptr<mola::OfflineDatasetSource> inner)
   : inner_(std::move(inner))
   {
   }
@@ -401,27 +406,30 @@ public:
       return inner_->datasetGetObservations(realIdx);
     }
 
+    auto sf = mrpt::obs::CSensoryFrame::Create();
+
     // Synthetic IMU tick, timestamped just before the scan it precedes.
     const auto realSf = inner_->datasetGetObservations(realIdx);
     const auto lidarObs = realSf->getObservationByClass<mrpt::obs::CObservationPointCloud>();
-    ASSERT_(lidarObs);
+    if (!lidarObs) {
+      return sf;
+    }
 
-    // mrpt::Clock::fromDouble()/TTimeStamp's raw tick count has no epoch
-    // offset baked in -- fromDouble(0.0) IS the representable minimum, and
-    // KITTI's own sequence-relative timestamps (KittiOdometryDataset reads
-    // them straight from times.txt) start at exactly 0.0. Subtracting a
-    // fixed offset without this clamp underflows the underlying unsigned
-    // tick count into a garbage multi-millennium timestamp for that first
-    // scan -- which then poisons DlioCore::first_imu_stamp_ (set from
+    // mrpt::Clock::fromDouble()/TTimeStamp's raw tick count has no epoch offset
+    // baked in -- fromDouble(0.0) IS the representable minimum, and sequence-
+    // relative timestamps (e.g. KITTI's times.txt) may start at exactly 0.0.
+    // Subtracting a fixed offset without this clamp underflows the underlying
+    // unsigned tick count into a garbage multi-millennium timestamp for that
+    // first scan -- which then poisons DlioCore::first_imu_stamp_ (set from
     // whatever this function returns first) and permanently fails its
     // `t_since_first_imu < imu_calib_time_sec` check, so calibration simply
     // never completes and no output is ever produced (confirmed: this was
     // silent, no error, no log -- the only symptom is an empty output
-    // trajectory no matter how many scans are fed). The clamp costs at most
-    // the very first scan (tied to its own synthetic IMU tick, dropped by
-    // the `scan_stamp_ <= imu_buffer_.back().stamp` check below) --
-    // harmless, DLIO's real-IMU startup already drops several seconds of
-    // scans during calibration regardless.
+    // trajectory no matter how many scans are fed). The clamp costs at most the
+    // very first scan (tied to its own synthetic IMU tick, dropped by the
+    // `scan_stamp_ <= imu_buffer_.back().stamp` check below) -- harmless,
+    // DLIO's real-IMU startup already drops several seconds of scans during
+    // calibration regardless.
     const double lidarT = mrpt::Clock::toDouble(lidarObs->timestamp);
     auto imu = mrpt::obs::CObservationIMU::Create();
     imu->sensorLabel = "imu";
@@ -433,7 +441,6 @@ public:
     imu->set(mrpt::obs::IMU_WY, 0.0);
     imu->set(mrpt::obs::IMU_WZ, 0.0);
 
-    auto sf = mrpt::obs::CSensoryFrame::Create();
     sf->insert(imu);
     return sf;
   }
@@ -451,9 +458,10 @@ private:
   // dlio_core's actual sign convention the first time this runs for real.
   static constexpr double kGravity = 9.80665;
 
-  std::shared_ptr<mola::KittiOdometryDataset> inner_;
+  std::shared_ptr<mola::OfflineDatasetSource> inner_;
 };
 
+#if defined(HAVE_MOLA_INPUT_KITTI)
 std::shared_ptr<mola::OfflineDatasetSource> dataset_from_kitti(
   const std::string & kittiSeqNumber, const mrpt::system::VerbosityLevel logLevel)
 {
@@ -476,7 +484,7 @@ std::shared_ptr<mola::OfflineDatasetSource> dataset_from_kitti(
 
   o->initialize(cfg);
 
-  return std::make_shared<KittiWithSyntheticImu>(o);
+  return std::make_shared<WithSyntheticImu>(o);
 }
 #endif
 
@@ -544,6 +552,10 @@ int main_odometry(Cli & cli)
     THROW_EXCEPTION("At least one of the dataset input CLI flags must be defined. Use --help.");
   }
   ASSERT_(dataset);
+
+  if (cli.arg_syntheticImu && !std::dynamic_pointer_cast<WithSyntheticImu>(dataset)) {
+    dataset = std::make_shared<WithSyntheticImu>(dataset);
+  }
 
   // Save GT, if available:
   if (cli.arg_outPath_set && dataset->hasGroundTruthTrajectory()) {
