@@ -22,8 +22,20 @@ imu_sensor_label: "imu"
 # pose math (mrpt::poses::CPose3D), not derived by hand. This is a per-rig
 # constant, not per-mission, so one extraction covers the whole dataset --
 # but it is unverified against a second mission's /tf_static.
-imu_pose_in_lidar_str: "-0.0258344 0.1090423 -0.0915437 0.7534965 -0.2815706 -0.1441546"
-baselink2lidar_pose_str: "0 0 0 0 0 0"
+#
+# That value is the ADIS16475's. The dataset profile selects the STIM320 IMU
+# (/boxi/stim320/imu) whenever its bags are present, and that sensor sits in a
+# different frame, so the caller sets GRANDTOUR_IMU_POSE_IN_LIDAR to match the
+# IMU topic it feeds (same /tf_static chain, box_base -> stim320_imu):
+#   STIM320: 0.025853 0.016480 -0.171397 -90.222606 -0.153164 -0.003319
+imu_pose_in_lidar_str: ${GRANDTOUR_IMU_POSE_IN_LIDAR|-0.0258344 0.1090423 -0.0915437 0.7534965 -0.2815706 -0.1441546}
+# T_base_lidar: pose of the LiDAR frame wrt the `base` frame, which is what
+# this dataset's odometry is expected to report and what its ground truth is
+# referred to (same value as fastlio2-grandtour.yaml, composed from /tf_static).
+# With identity here the trajectory came out in the hesai_lidar frame (a
+# 89.6 deg yaw and 0.48 m away from base), measured as a constant body-frame
+# rotation against the RTK-INS reference.
+baselink2lidar_pose_str: "0.378927 0.006448 0.293116 89.636850 -0.671173 0.042510"
 
 # The LiDAR stream used here (points_undistorted) is already deskewed by the
 # dataset provider, same situation as KITTI -- see dlio-kitti.yaml. Kept
@@ -32,6 +44,14 @@ baselink2lidar_pose_str: "0 0 0 0 0 0"
 # normal deskew math still has real gyro/accel data to work with, it is just
 # integrating over an interval where the points were already motion-corrected.
 fallback_scan_period: 0.1
+
+# The "_undist" stream is already motion-compensated by the dataset, but its
+# per-point timestamps still span the sweep. De-skewing it a second time
+# distorts the scan by the platform's own motion (measured on eth-1 against
+# the RTK-INS reference: a walking robot turns a 0.03 m APE into 0.86 m), so
+# every point is taken at the observation time instead. Set it to false for
+# the raw "<mission>_hesai.bag" stream, which needs the de-skew.
+ignore_point_timestamps: ${GRANDTOUR_IGNORE_POINT_TIMESTAMPS|true}
 
 crop_box_size: ${DLIO_CROPBOX_SIZE|1.0}
 blind: 0.0
