@@ -129,6 +129,10 @@ void DlioOdometry::initialize_frontend(const Yaml & cfg)
   YAML_LOAD_OPT(blind, double);
   blind_ = blind;
 
+  bool ignore_point_timestamps = ignore_point_timestamps_;
+  YAML_LOAD_OPT(ignore_point_timestamps, bool);
+  ignore_point_timestamps_ = ignore_point_timestamps;
+
   YAML_LOAD_OPT3(core_cfg_, adaptive, bool);
   YAML_LOAD_OPT3(core_cfg_, pointcloud_deskew, bool);
   YAML_LOAD_OPT3(core_cfg_, pointcloud_voxelize, bool);
@@ -184,13 +188,24 @@ void DlioOdometry::initialize_frontend(const Yaml & cfg)
   YAML_LOAD_MEMBER_OPT(save_trajectory_to_file, bool);
   YAML_LOAD_MEMBER_OPT(trajectory_output_file, std::string);
 
-  // DLIO's own extrinsics (used internally by dlio_core, independent of
-  // this module's own imu_pose_in_lidar_ used below for publishing): both
-  // are standard point-transforms p_baselink = R*p_child + t, so the parsed
-  // pose is used directly, unlike FastLio2Odometry's extrinsic_R/T (which
-  // needs the inverse for Fast-LIO2's own different convention).
-  poseToExtrinsic(imu_pose_in_lidar_, core_cfg_.baselink2imu);
-  poseToExtrinsic(parsePose6D(baselink2lidar_pose_str), core_cfg_.baselink2lidar);
+  // DLIO's own extrinsics (used internally by dlio_core): both are standard
+  // point-transforms p_baselink = R*p_child + t, so the parsed poses are used
+  // directly, unlike FastLio2Odometry's extrinsic_R/T (which needs the
+  // inverse for Fast-LIO2's own different convention). The core's baselink
+  // is the dataset's reference frame: the IMU pose wrt it is the LiDAR pose
+  // wrt baselink composed with the IMU pose wrt the LiDAR.
+  const mrpt::poses::CPose3D baselinkPoseOfLidar = parsePose6D(baselink2lidar_pose_str);
+  const mrpt::poses::CPose3D baselinkPoseOfImu = baselinkPoseOfLidar + imu_pose_in_lidar_;
+  poseToExtrinsic(baselinkPoseOfImu, core_cfg_.baselink2imu);
+  poseToExtrinsic(baselinkPoseOfLidar, core_cfg_.baselink2lidar);
+
+  // The core reports the IMU pose (world_from_baselink composed with
+  // baselink2imu); undo that composition once here so publishOutput() reports
+  // world_from_baselink. Composing imu_pose_in_lidar_ onto the IMU pose
+  // uninverted, as this did before, applied the IMU extrinsic twice.
+  imu_to_output_frame_ = -baselinkPoseOfImu;
+  output_frame_id_ =
+    baselinkPoseOfLidar == mrpt::poses::CPose3D::Identity() ? "lidar" : "base_link";
 
   // imu_prior_{accel,gyro}_bias / imu_accel_sm are not exposed via YAML yet
   // (left at Config defaults: zero bias, identity scale/misalignment) --
@@ -249,7 +264,8 @@ void DlioOdometry::processLidarScan(mrpt::obs::CObservation::ConstPtr o)
   auto pc = std::dynamic_pointer_cast<const mrpt::obs::CObservationPointCloud>(o);
   if (pc && core_) {
     double t_beg, t_end;
-    auto cloud = toDlioCloud(*pc, fallback_scan_period_, t_beg, t_end, blind_);
+    auto cloud =
+      toDlioCloud(*pc, fallback_scan_period_, t_beg, t_end, blind_, ignore_point_timestamps_);
     core_->addLidarScan(std::move(cloud), t_beg, t_end);
     drainAndPublish();
   }
@@ -269,13 +285,11 @@ void DlioOdometry::drainAndPublish()
 
 void DlioOdometry::publishOutput(const dlio_core::OdometryOutput & out)
 {
-  // DLIO estimates the IMU (base_link) pose; report the LiDAR pose instead,
-  // matching every other wrapper's `map -> lidar` convention (see the
-  // common plan's Oxford Spires section: `gt-tum.txt` is in the raw LiDAR
-  // frame). Same "+" composition FastLio2Odometry uses with the identical
-  // imu_pose_in_lidar_ value; see DlioOdometry.h's doc comment.
+  // DLIO reports the IMU pose; report the baselink pose instead (the LiDAR
+  // when baselink2lidar_pose_str is identity, the dataset's reference frame
+  // otherwise), matching the other wrappers' convention.
   const mrpt::poses::CPose3D imuPose = isometryToPose(out.pose_imu);
-  const mrpt::poses::CPose3D lidarPose = imuPose + imu_pose_in_lidar_;
+  const mrpt::poses::CPose3D lidarPose = imuPose + imu_to_output_frame_;
 
   const auto timestamp = mrpt::Clock::fromDouble(out.timestamp);
 
@@ -288,7 +302,7 @@ void DlioOdometry::publishOutput(const dlio_core::OdometryOutput & out)
     LocalizationUpdate lu;
     lu.timestamp = timestamp;
     lu.reference_frame = "map";
-    lu.child_frame = "lidar";
+    lu.child_frame = output_frame_id_;
     lu.method = "dlio";
     lu.pose = lidarPose.asTPose();
     advertiseUpdatedLocalization(lu);

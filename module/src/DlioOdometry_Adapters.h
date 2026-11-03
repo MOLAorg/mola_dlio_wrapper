@@ -30,7 +30,7 @@ namespace mola
 /** See the .cpp file for the full documentation of the conversion logic. */
 dlio_core::LidarPointVector toDlioCloud(
   const mrpt::obs::CObservationPointCloud & obs, double fallback_scan_period, double & t_beg,
-  double & t_end, double blind = 0.0);
+  double & t_end, double blind = 0.0, bool ignorePointTimestamps = false);
 
 dlio_core::ImuSample toDlioImu(const mrpt::obs::CObservationIMU & obs);
 

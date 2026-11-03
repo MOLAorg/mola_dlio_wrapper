@@ -11,12 +11,17 @@
 lidar_sensor_label: "lidar"
 imu_sensor_label: "imu"
 
-# T_baselink_imu: pose of the IMU frame wrt the LiDAR frame. The Hesai LiDAR
-# is already the reference (base_link) frame in this dataset (same value as
-# mola_lidar_odometry's and mola_fast_lio2_wrapper's Oxford Spires configs),
-# so baselink2lidar below stays identity.
+# T_lidar_imu: pose of the IMU frame wrt the LiDAR frame (same value as the
+# Fast-LIO2 and GLIM wrappers' Oxford Spires pipelines).
 imu_pose_in_lidar_str: "0.018771 -0.008218 -0.070474 -90.6263 -0.1665 -0.1287"
-baselink2lidar_pose_str: "0 0 0 0 0 0"
+
+# T_base_lidar: pose of the LiDAR frame wrt base_link. The Hesai LiDAR is NOT
+# the reference frame in this dataset -- base_link is a 180 deg yaw and
+# 0.124 m away from it, and the dataset's ground truth is in base_link. This
+# file carried identity while the module applied the IMU extrinsic twice on
+# output, which by coincidence (two 90.6 deg yaws) landed within 1.3 deg of
+# base_link; with that fixed, the frame has to be stated here.
+baselink2lidar_pose_str: "0 0 0.124 180 0 0"
 
 # Fallback only: the Hesai Pandar PointCloud2 in this dataset carries a real
 # per-point "timestamp" field (confirmed against the raw bags, same as the

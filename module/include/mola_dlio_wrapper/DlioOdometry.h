@@ -116,15 +116,29 @@ private:
 
   /// Pose of the IMU frame wrt the LiDAR frame ("x y z yaw_deg pitch_deg
   /// roll_deg"), same convention/value as `fixed_sensor_pose` for the IMU
-  /// sensor in the dataset YAML when the LiDAR is base_link. Used both to
-  /// fill `core_cfg_.baselink2imu` (see initialize_frontend()) and, here in
-  /// the module, to recover the LiDAR pose from the core's IMU-frame output
-  /// -- mirrors `FastLio2Odometry::imu_pose_in_lidar_` exactly.
+  /// sensor in the dataset YAML when the LiDAR is base_link. Composed with
+  /// `baselink2lidar_pose_str` into `core_cfg_.baselink2imu` (see
+  /// initialize_frontend()) -- mirrors `FastLio2Odometry::imu_pose_in_lidar_`.
   mrpt::poses::CPose3D imu_pose_in_lidar_;
+
+  /// Inverse of the IMU pose wrt baselink: composed onto the core's IMU-frame
+  /// output to report world_from_baselink. Precomputed in
+  /// initialize_frontend().
+  mrpt::poses::CPose3D imu_to_output_frame_;
+
+  /// "lidar" when the LiDAR is baselink, "base_link" otherwise.
+  std::string output_frame_id_ = "lidar";
 
   /// Used only as a fallback when an incoming point cloud has no per-point
   /// timestamp channel (synthesizes one from azimuth angle).
   double fallback_scan_period_ = 0.1;
+
+  /// Treat every point of a scan as taken at the observation timestamp, i.e.
+  /// disable the per-point de-skew even when the cloud carries a timestamp
+  /// channel. For streams that a dataset has already motion-compensated but
+  /// whose per-point times still span the sweep, de-skewing them again
+  /// distorts the geometry by the platform's motion.
+  bool ignore_point_timestamps_ = false;
 
   /// Minimum point range [m]; see dlio_core::Config::crop_box_size doc.
   double blind_ = 0.0;
