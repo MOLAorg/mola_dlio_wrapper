@@ -71,8 +71,7 @@ LidarPointVector toDlioCloud(
     // Already motion-compensated input: every point at the observation time.
     t_beg = t_end = obsTime;
     size_t k = 0;
-    for (size_t i = 0; i < n; i++)
-    {
+    for (size_t i = 0; i < n; i++) {
       const double r2 = static_cast<double>(xs[i]) * xs[i] + static_cast<double>(ys[i]) * ys[i] +
                         static_cast<double>(zs[i]) * zs[i];
       if (r2 < blind2) {

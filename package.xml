@@ -23,6 +23,8 @@
   <depend>mrpt_obs</depend>
 
   <depend>eigen</depend>
+  <depend>boost</depend>
+  <depend>libpcl-all-dev</depend>
 
   <!-- dataset input sources (all are actually optional) -->
   <depend>mola_input_mulran_dataset</depend>
