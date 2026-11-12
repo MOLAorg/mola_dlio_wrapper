@@ -260,7 +260,21 @@ void DlioOdometry::onLidarObservation(const mrpt::obs::CObservation::ConstPtr & 
 
 void DlioOdometry::processLidarScan(mrpt::obs::CObservation::ConstPtr o)
 {
-  MRPT_TRY_START
+  // On the worker thread an exception would be lost in the discarded future:
+  // report it, and always release the in-flight count, or isBusy() would
+  // stay true forever.
+  try {
+    processLidarScanImpl(o);
+  } catch (const std::exception & e) {
+    MRPT_LOG_ERROR_STREAM("Error processing a LiDAR scan: " << e.what());
+  } catch (...) {
+    MRPT_LOG_ERROR("Unknown error processing a LiDAR scan");
+  }
+  tasks_in_flight_--;
+}
+
+void DlioOdometry::processLidarScanImpl(const mrpt::obs::CObservation::ConstPtr & o)
+{
   auto pc = std::dynamic_pointer_cast<const mrpt::obs::CObservationPointCloud>(o);
   if (pc && core_) {
     double t_beg, t_end;
@@ -269,8 +283,6 @@ void DlioOdometry::processLidarScan(mrpt::obs::CObservation::ConstPtr o)
     core_->addLidarScan(std::move(cloud), t_beg, t_end);
     drainAndPublish();
   }
-  tasks_in_flight_--;
-  MRPT_TRY_END
 }
 
 void DlioOdometry::drainAndPublish()

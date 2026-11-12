@@ -93,6 +93,7 @@ private:
   void onLidarObservation(const mrpt::obs::CObservation::ConstPtr & o);
   void onImuObservation(const mrpt::obs::CObservation::ConstPtr & o);
   void processLidarScan(mrpt::obs::CObservation::ConstPtr o);
+  void processLidarScanImpl(const mrpt::obs::CObservation::ConstPtr & o);
   void drainAndPublish();
   void publishOutput(const dlio_core::OdometryOutput & out);
 
